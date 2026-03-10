@@ -2,7 +2,6 @@
 
 A smart, AI-powered tool that helps recruiters write personalized outreach messages in seconds — based on a candidate's resume, LinkedIn, GitHub, or any profile URL.
 
-**Built by Echo Xu 
 **Powered by Claude (Anthropic)**
 
 ---
