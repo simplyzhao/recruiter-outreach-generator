@@ -16,7 +16,11 @@ A smart, AI-powered tool that helps recruiters write personalized outreach messa
 * 📝 **Custom Notes** — Add recruiter context like urgency, culture, or perks.
 * 📋 **One-click Copy** — Copy the generated message instantly.
 
-👤 Author
-Echo Xu
-GitHub: @Echoxu101
-LinkedIn: echoxu101
+---
+
+## 👤 Author
+
+**Echo Xu**
+
+[![GitHub](https://img.shields.io/badge/GitHub-@Echoxu101-black?style=flat&logo=github)](https://github.com/Echoxu101)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-Connect-blue?style=flat&logo=linkedin)](https://www.linkedin.com/in/echoxu101/)
