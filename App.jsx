@@ -45,7 +45,13 @@ export default function App() {
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
+  const [apiKey, setApiKey] = useState(localStorage.getItem("anthropic_api_key") || "");
   const fileRef = useRef();
+
+  const saveApiKey = (key) => {
+    setApiKey(key);
+    localStorage.setItem("anthropic_api_key", key);
+  };
 
   const toBase64 = (f) => new Promise((res, rej) => {
     const r = new FileReader();
@@ -84,6 +90,7 @@ Write only the message, nothing else.`;
     setError("");
     setResult("");
 
+    if (!apiKey.trim()) { setError("Please enter your Anthropic API Key."); return; }
     if (tab === "url" && !url.trim()) { setError("Please enter a URL."); return; }
     if (tab === "resume" && !file) { setError("Please upload a resume PDF."); return; }
     if (!jobTitle.trim()) { setError("Please enter the job title."); return; }
@@ -119,7 +126,12 @@ Write only the outreach message, nothing else.`;
 
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
             max_tokens: 1000,
@@ -146,7 +158,12 @@ Write only the outreach message, nothing else.`;
 
         const res = await fetch("https://api.anthropic.com/v1/messages", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers: {
+            "Content-Type": "application/json",
+            "x-api-key": apiKey,
+            "anthropic-version": "2023-06-01",
+            "anthropic-dangerous-direct-browser-access": "true",
+          },
           body: JSON.stringify({
             model: "claude-sonnet-4-20250514",
             max_tokens: 1000,
@@ -182,6 +199,19 @@ Write only the outreach message, nothing else.`;
 
         {/* Card */}
         <div style={{ background: "#fff", borderRadius: 16, boxShadow: "0 4px 24px rgba(99,102,241,0.08)", padding: 28 }}>
+
+          {/* API Key */}
+          <div style={{ marginBottom: 20 }}>
+            <label style={labelStyle}>Anthropic API Key <span style={{ color: "#ef4444" }}>*</span></label>
+            <input
+              style={{ ...inputStyle, fontFamily: "monospace" }}
+              type="password"
+              placeholder="sk-ant-..."
+              value={apiKey}
+              onChange={e => saveApiKey(e.target.value)}
+            />
+            <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Your key is stored in browser localStorage only.</p>
+          </div>
 
           {/* Tab: Input Source */}
           <div style={{ marginBottom: 20 }}>
