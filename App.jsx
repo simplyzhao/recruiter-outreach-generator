@@ -1,375 +1,262 @@
 import { useState, useRef } from "react";
 
 const TONES = ["Professional", "Friendly", "Casual", "Enthusiastic"];
-const PLATFORMS = ["Email", "LinkedIn", "WhatsApp"];
+const PLATFORMS = ["Email", "LinkedIn", "WhatsApp", "WeChat"];
+const LANGUAGES = ["English", "中文", "日本語", "Español", "Français", "Deutsch"];
 
-function Spinner() {
+const s = {
+  bg: "#f9f7f4", surface: "#f3f0eb", surface2: "#ece9e3",
+  border: "#dedad4", border2: "#ccc8c2",
+  text: "#1a1a1a", text2: "#5a5450", muted: "#9a9490",
+};
+
+const globalStyles = `
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: ${s.bg}; font-family: 'Segoe UI', system-ui, sans-serif; }
+  input, textarea { transition: border-color .15s; }
+  input:focus, textarea:focus { border-color: ${s.text} !important; outline: none; }
+  input::placeholder, textarea::placeholder { color: ${s.muted}; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  @media (max-width: 700px) { .layout { grid-template-columns: 1fr !important; } }
+`;
+
+function Pill({ active, onClick, children }) {
   return (
-    <div className="flex items-center justify-center py-8">
-      <div style={{width:36,height:36,border:"4px solid #e0e7ff",borderTop:"4px solid #6366f1",borderRadius:"50%",animation:"spin 0.8s linear infinite"}} />
-      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
-    </div>
+    <button onClick={onClick} style={{
+      padding: "5px 14px", borderRadius: 100, fontFamily: "inherit",
+      border: `1.5px solid ${active ? s.text : s.border2}`,
+      background: active ? s.surface2 : s.surface,
+      color: active ? s.text : s.muted,
+      cursor: "pointer", fontSize: 13, fontWeight: active ? 600 : 400, transition: "all .15s",
+    }}>{children}</button>
   );
 }
 
 function TabBtn({ active, onClick, children }) {
   return (
-    <button
-      onClick={onClick}
-      style={{
-        padding: "8px 20px",
-        borderRadius: 8,
-        border: "none",
-        cursor: "pointer",
-        fontWeight: active ? 700 : 400,
-        background: active ? "#6366f1" : "#f1f5f9",
-        color: active ? "#fff" : "#64748b",
-        transition: "all 0.2s",
-      }}
-    >
-      {children}
-    </button>
+    <button onClick={onClick} style={{
+      padding: "7px 18px", borderRadius: 8, fontFamily: "inherit",
+      border: `1.5px solid ${active ? s.text : s.border2}`,
+      background: active ? s.text : s.surface2,
+      color: active ? s.bg : s.text2,
+      cursor: "pointer", fontWeight: active ? 700 : 400, fontSize: 13, transition: "all .15s",
+    }}>{children}</button>
   );
 }
 
+function Field({ label, required, hint, optional, children }) {
+  return (
+    <div style={{ marginBottom: "1rem" }}>
+      <label style={{ display: "block", fontSize: ".8rem", fontWeight: 600, color: s.text2, marginBottom: 4 }}>
+        {label}
+        {required && <span style={{ color: "#c0392b" }}> *</span>}
+        {optional && <span style={{ color: s.muted, fontWeight: 400 }}> (optional)</span>}
+      </label>
+      {children}
+      {hint && <p style={{ fontSize: 12, color: s.muted, marginTop: 4 }}>{hint}</p>}
+    </div>
+  );
+}
+
+const inputSt = {
+  width: "100%", padding: "9px 11px", borderRadius: 8,
+  border: `1.5px solid ${s.border2}`, fontSize: ".85rem",
+  fontFamily: "inherit", background: s.surface2, color: s.text,
+};
+
+function platformHint(p) {
+  if (p === "LinkedIn") return "Keep under 300 chars.";
+  if (p === "WhatsApp" || p === "WeChat") return "Keep conversational and brief.";
+  return "Start with: Subject: [subject line]\n\nThen the email body.";
+}
+
 export default function App() {
-  const [tab, setTab] = useState("url"); // "url" | "resume"
+  const [tab, setTab] = useState("url");
   const [url, setUrl] = useState("");
   const [file, setFile] = useState(null);
   const [jobTitle, setJobTitle] = useState("");
   const [company, setCompany] = useState("");
   const [tone, setTone] = useState("Professional");
   const [platform, setPlatform] = useState("Email");
+  const [language, setLanguage] = useState("English");
   const [extraNotes, setExtraNotes] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [copied, setCopied] = useState(false);
-  const [apiKey, setApiKey] = useState(localStorage.getItem("anthropic_api_key") || "");
   const fileRef = useRef();
 
-  const saveApiKey = (key) => {
-    setApiKey(key);
-    localStorage.setItem("anthropic_api_key", key);
-  };
-
-  const toBase64 = (f) => new Promise((res, rej) => {
+  const toBase64 = f => new Promise((res, rej) => {
     const r = new FileReader();
     r.onload = () => res(r.result.split(",")[1]);
     r.onerror = () => rej(new Error("Read failed"));
     r.readAsDataURL(f);
   });
 
-  const buildPrompt = (profileInfo) => {
-    return `You are an expert tech recruiter writing outreach messages.
-
-Based on the following candidate profile information:
----
-${profileInfo}
----
-
-Write a ${tone.toLowerCase()} outreach message for ${platform} (${platform === "LinkedIn" ? "keep it under 300 characters for connection request, or a short InMail" : platform === "WhatsApp" ? "keep it concise and conversational" : "write a proper email with subject line"}).
-
-Details:
-- Role: ${jobTitle || "not specified"}
-- Company: ${company || "not specified"}
-- Tone: ${tone}
-${extraNotes ? `- Additional notes: ${extraNotes}` : ""}
-
-Requirements:
-- Personalize the message based on specific details from the candidate's profile (skills, projects, experience, contributions).
-- Be genuine and specific — avoid generic templates.
-- Highlight why this candidate is a great fit.
-- Include a clear call-to-action.
-${platform === "Email" ? "- Start with: Subject: [subject line]\n\n[email body]" : ""}
-
-Write only the message, nothing else.`;
-  };
-
   const generate = async () => {
     setError("");
-    setResult("");
-
-    if (!apiKey.trim()) { setError("Please enter your Anthropic API Key."); return; }
     if (tab === "url" && !url.trim()) { setError("Please enter a URL."); return; }
     if (tab === "resume" && !file) { setError("Please upload a resume PDF."); return; }
     if (!jobTitle.trim()) { setError("Please enter the job title."); return; }
 
-    setLoading(true);
+    setLoading(true); setResult("");
     try {
-      let messages;
-
+      let data;
       if (tab === "url") {
-        // Use web search + Claude to analyze the URL
-        const profilePrompt = `Analyze this profile/page: ${url.trim()}
-
-Extract all relevant professional information including:
-- Name, current role, company
-- Skills and technologies
-- Work experience and achievements
-- Notable projects or contributions
-- Education
-- Any other relevant professional details
-
-Then write a ${tone.toLowerCase()} ${platform} outreach message for the role of "${jobTitle}"${company ? ` at ${company}` : ""}.
-${extraNotes ? `Additional recruiter notes: ${extraNotes}` : ""}
-
-The message should:
-- Be personalized with specific details from their profile
-- Highlight why they're a great fit
-- Have a clear call-to-action
-${platform === "Email" ? "- Start with: Subject: [subject line]\n\nThen the email body." : platform === "LinkedIn" ? "- Be concise (under 300 chars for a connection note, or short InMail)" : "- Be conversational and brief"}
-
-Write only the outreach message, nothing else.`;
-
-        messages = [{ role: "user", content: profilePrompt }];
-
+        const prompt = `Analyze this profile/page: ${url.trim()}\n\nExtract professional info (name, role, skills, projects, experience), then write a ${tone.toLowerCase()} ${platform} outreach message for the role of "${jobTitle}"${company ? ` at ${company}` : ""}.${extraNotes ? `\nRecruiter notes: ${extraNotes}` : ""}\n${platformHint(platform)}\nWrite the message in ${language}. Write only the outreach message, nothing else.`;
         const res = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 1000,
-            tools: [{ type: "web_search_20250305", name: "web_search" }],
-            messages,
-          }),
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, tools: [{ type: "web_search_20250305", name: "web_search" }], messages: [{ role: "user", content: prompt }] }),
         });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
-        const text = data.content.filter(b => b.type === "text").map(b => b.text).join("\n");
-        setResult(text.trim());
-
+        data = await res.json();
       } else {
-        // PDF resume
         const base64 = await toBase64(file);
-        const prompt = buildPrompt("[See attached resume PDF]");
-        messages = [{
-          role: "user",
-          content: [
-            { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } },
-            { type: "text", text: prompt }
-          ]
-        }];
-
+        const prompt = `You are an expert tech recruiter. Based on the attached resume, write a ${tone.toLowerCase()} ${platform} outreach message for the role of "${jobTitle}"${company ? ` at ${company}` : ""}.${extraNotes ? `\nRecruiter notes: ${extraNotes}` : ""}\n- Personalize with specific details. Highlight fit. Include a call-to-action.\n${platformHint(platform)}\nWrite the message in ${language}. Write only the message.`;
         const res = await fetch("https://api.anthropic.com/v1/messages", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "x-api-key": apiKey,
-            "anthropic-version": "2023-06-01",
-            "anthropic-dangerous-direct-browser-access": "true",
-          },
-          body: JSON.stringify({
-            model: "claude-sonnet-4-20250514",
-            max_tokens: 1000,
-            messages,
-          }),
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ model: "claude-sonnet-4-20250514", max_tokens: 1000, messages: [{ role: "user", content: [{ type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }, { type: "text", text: prompt }] }] }),
         });
-        const data = await res.json();
-        if (data.error) throw new Error(data.error.message);
-        const text = data.content.filter(b => b.type === "text").map(b => b.text).join("\n");
-        setResult(text.trim());
+        data = await res.json();
       }
-    } catch (e) {
-      setError("Something went wrong: " + e.message);
-    }
+      if (data.error) throw new Error(data.error.message);
+      setResult(data.content.filter(b => b.type === "text").map(b => b.text).join("\n").trim());
+    } catch (e) { setError("Something went wrong: " + e.message); }
     setLoading(false);
   };
 
   const copy = () => {
     navigator.clipboard.writeText(result);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    setCopied(true); setTimeout(() => setCopied(false), 2000);
   };
 
   return (
-    <div style={{ minHeight: "100vh", background: "linear-gradient(135deg,#f0f4ff 0%,#faf5ff 100%)", padding: "32px 16px", fontFamily: "system-ui,sans-serif" }}>
-      <div style={{ maxWidth: 680, margin: "0 auto" }}>
-        {/* Header */}
-        <div style={{ textAlign: "center", marginBottom: 32 }}>
-          <div style={{ fontSize: 40, marginBottom: 8 }}>✉️</div>
-          <h1 style={{ margin: 0, fontSize: 26, fontWeight: 800, color: "#1e1b4b" }}>Recruiter Outreach Generator</h1>
-          <p style={{ color: "#64748b", marginTop: 6 }}>Generate personalized outreach messages from resumes, LinkedIn, GitHub, or any profile URL.</p>
+    <>
+      <style>{globalStyles}</style>
+      <div style={{ minHeight: "100vh", background: s.bg, fontFamily: "'Segoe UI', system-ui, sans-serif", paddingBottom: 60 }}>
+
+        {/* NAV */}
+        <nav style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "1rem 5%", borderBottom: `1px solid ${s.border}`, background: s.bg, position: "sticky", top: 0, zIndex: 10 }}>
+          <div style={{ fontWeight: 800, fontSize: "1rem", letterSpacing: "-.3px" }}>outreach.ai</div>
+          <div style={{ background: s.text, color: s.bg, fontSize: ".72rem", fontWeight: 600, padding: ".25rem .75rem", borderRadius: 100 }}>AI-powered</div>
+        </nav>
+
+        {/* HERO */}
+        <div style={{ textAlign: "center", padding: "3rem 5% 2rem", maxWidth: 600, margin: "0 auto" }}>
+          <div style={{ display: "inline-block", background: s.surface2, color: s.text2, fontSize: ".75rem", fontWeight: 500, padding: ".28rem .85rem", borderRadius: 100, marginBottom: "1.2rem", border: `1px solid ${s.border2}` }}>
+            Built for recruiters
+          </div>
+          <h1 style={{ fontSize: "clamp(1.7rem, 3.5vw, 2.4rem)", fontWeight: 700, letterSpacing: "-.8px", lineHeight: 1.2, marginBottom: ".75rem", color: s.text }}>
+            Write better outreach<br />in seconds
+          </h1>
+          <p style={{ color: s.text2, fontSize: ".92rem", lineHeight: 1.6 }}>
+            Generate personalized, human-sounding messages for candidates - no more copy-paste templates.
+          </p>
         </div>
 
-        {/* Card */}
-        <div style={{ background: "#fff", borderRadius: 16, boxShadow: "0 4px 24px rgba(99,102,241,0.08)", padding: 28 }}>
+        {/* LAYOUT */}
+        <div className="layout" style={{ maxWidth: 1000, margin: "0 auto", padding: "0 5%", display: "grid", gridTemplateColumns: "1fr 1fr", gap: "1.2rem", alignItems: "stretch" }}>
 
-          {/* API Key */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelStyle}>Anthropic API Key <span style={{ color: "#ef4444" }}>*</span></label>
-            <input
-              style={{ ...inputStyle, fontFamily: "monospace" }}
-              type="password"
-              placeholder="sk-ant-..."
-              value={apiKey}
-              onChange={e => saveApiKey(e.target.value)}
-            />
-            <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Your key is stored in browser localStorage only.</p>
-          </div>
+          {/* LEFT */}
+          <div style={{ background: s.surface, border: `1px solid ${s.border}`, borderRadius: 12, padding: "1.5rem", display: "flex", flexDirection: "column" }}>
+            <div style={{ fontSize: ".7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: s.muted, marginBottom: ".8rem" }}>Candidate Profile Source</div>
 
-          {/* Tab: Input Source */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelStyle}>Candidate Profile Source</label>
-            <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+            <div style={{ display: "flex", gap: 8, marginBottom: "1.2rem" }}>
               <TabBtn active={tab === "url"} onClick={() => setTab("url")}>🔗 URL / Profile Link</TabBtn>
               <TabBtn active={tab === "resume"} onClick={() => setTab("resume")}>📄 Upload Resume (PDF)</TabBtn>
             </div>
-          </div>
 
-          {tab === "url" ? (
-            <div style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>Profile URL</label>
-              <input
-                style={inputStyle}
-                placeholder="https://linkedin.com/in/... or https://github.com/... or personal site"
-                value={url}
-                onChange={e => setUrl(e.target.value)}
-              />
-              <p style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>Supports LinkedIn, GitHub, personal websites, open source project pages, etc.</p>
-            </div>
-          ) : (
-            <div style={{ marginBottom: 16 }}>
-              <label style={labelStyle}>Resume PDF</label>
-              <div
-                onClick={() => fileRef.current.click()}
-                style={{
-                  border: "2px dashed #c7d2fe", borderRadius: 10, padding: "20px 16px",
-                  textAlign: "center", cursor: "pointer", background: "#f8f7ff",
-                  transition: "border-color 0.2s",
-                }}
-              >
-                {file ? (
-                  <div>
-                    <div style={{ fontSize: 24 }}>📄</div>
-                    <div style={{ fontWeight: 600, color: "#6366f1", marginTop: 4 }}>{file.name}</div>
-                    <div style={{ fontSize: 12, color: "#94a3b8" }}>{(file.size / 1024).toFixed(1)} KB</div>
-                  </div>
-                ) : (
-                  <div>
-                    <div style={{ fontSize: 32 }}>⬆️</div>
-                    <div style={{ color: "#6366f1", fontWeight: 600, marginTop: 4 }}>Click to upload PDF</div>
-                    <div style={{ fontSize: 12, color: "#94a3b8" }}>PDF files only</div>
-                  </div>
-                )}
-              </div>
-              <input ref={fileRef} type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => setFile(e.target.files[0])} />
-            </div>
-          )}
+            {tab === "url" ? (
+              <Field label="Profile URL" hint="Supports GitHub, personal websites, open source pages, etc. (LinkedIn may have access limitations)">
+                <input style={inputSt} placeholder="https://github.com/... or personal site" value={url} onChange={e => setUrl(e.target.value)} />
+              </Field>
+            ) : (
+              <Field label="Resume PDF">
+                <div onClick={() => fileRef.current.click()} style={{ border: `2px dashed ${s.border2}`, borderRadius: 10, padding: 20, textAlign: "center", cursor: "pointer", background: s.surface2 }}>
+                  {file ? (
+                    <><div style={{ fontSize: 24 }}>📄</div><div style={{ fontWeight: 600, color: s.text, marginTop: 4 }}>{file.name}</div><div style={{ fontSize: 12, color: s.muted }}>{(file.size / 1024).toFixed(1)} KB</div></>
+                  ) : (
+                    <><div style={{ fontSize: 28 }}>⬆️</div><div style={{ color: s.text2, fontWeight: 600, marginTop: 4, fontSize: 14 }}>Click to upload PDF</div><div style={{ fontSize: 12, color: s.muted }}>PDF files only</div></>
+                  )}
+                </div>
+                <input ref={fileRef} type="file" accept="application/pdf" style={{ display: "none" }} onChange={e => setFile(e.target.files[0])} />
+              </Field>
+            )}
 
-          {/* Job Info */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-            <div>
-              <label style={labelStyle}>Job Title <span style={{ color: "#ef4444" }}>*</span></label>
-              <input style={inputStyle} placeholder="e.g. Senior Backend Engineer" value={jobTitle} onChange={e => setJobTitle(e.target.value)} />
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label="Job Title" required>
+                <input style={inputSt} placeholder="e.g. Senior Backend Engineer" value={jobTitle} onChange={e => setJobTitle(e.target.value)} />
+              </Field>
+              <Field label="Company Name">
+                <input style={inputSt} placeholder="e.g. MeshyAI" value={company} onChange={e => setCompany(e.target.value)} />
+              </Field>
             </div>
-            <div>
-              <label style={labelStyle}>Company Name</label>
-              <input style={inputStyle} placeholder="e.g. Stripe" value={company} onChange={e => setCompany(e.target.value)} />
-            </div>
-          </div>
 
-          {/* Tone & Platform */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-            <div>
-              <label style={labelStyle}>Tone</label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <Field label="Tone">
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                  {TONES.map(t => <Pill key={t} active={tone === t} onClick={() => setTone(t)}>{t}</Pill>)}
+                </div>
+              </Field>
+              <Field label="Platform">
+                <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+                  {PLATFORMS.map(p => <Pill key={p} active={platform === p} onClick={() => setPlatform(p)}>{p}</Pill>)}
+                </div>
+              </Field>
+            </div>
+
+            <Field label="Language">
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                {TONES.map(t => (
-                  <button key={t} onClick={() => setTone(t)} style={{
-                    padding: "5px 12px", borderRadius: 20, border: "1.5px solid",
-                    borderColor: tone === t ? "#6366f1" : "#e2e8f0",
-                    background: tone === t ? "#eef2ff" : "#fff",
-                    color: tone === t ? "#6366f1" : "#64748b",
-                    cursor: "pointer", fontSize: 13, fontWeight: tone === t ? 600 : 400,
-                  }}>{t}</button>
-                ))}
+                {LANGUAGES.map(l => <Pill key={l} active={language === l} onClick={() => setLanguage(l)}>{l}</Pill>)}
               </div>
-            </div>
-            <div>
-              <label style={labelStyle}>Platform</label>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
-                {PLATFORMS.map(p => (
-                  <button key={p} onClick={() => setPlatform(p)} style={{
-                    padding: "5px 12px", borderRadius: 20, border: "1.5px solid",
-                    borderColor: platform === p ? "#6366f1" : "#e2e8f0",
-                    background: platform === p ? "#eef2ff" : "#fff",
-                    color: platform === p ? "#6366f1" : "#64748b",
-                    cursor: "pointer", fontSize: 13, fontWeight: platform === p ? 600 : 400,
-                  }}>{p}</button>
-                ))}
-              </div>
-            </div>
+            </Field>
+
+            <Field label="Additional Notes" optional>
+              <textarea style={{ ...inputSt, minHeight: 68, resize: "vertical" }}
+                placeholder="e.g. Mention remote-first culture, urgent hiring..."
+                value={extraNotes} onChange={e => setExtraNotes(e.target.value)} />
+            </Field>
+
+            {error && <div style={{ background: "#fdf0f0", border: "1px solid #e8c8c8", borderRadius: 8, padding: "10px 14px", color: "#b94040", fontSize: 13, marginBottom: 14 }}>{error}</div>}
+
+            <button onClick={generate} disabled={loading} style={{
+              width: "100%", padding: 12, borderRadius: 9, border: "none", marginTop: "auto",
+              background: loading ? s.border2 : s.text, color: loading ? s.muted : s.bg,
+              fontWeight: 700, fontSize: ".95rem", fontFamily: "inherit",
+              cursor: loading ? "not-allowed" : "pointer",
+            }}>
+              {loading ? "Generating..." : "Generate Message"}
+            </button>
           </div>
 
-          {/* Extra Notes */}
-          <div style={{ marginBottom: 20 }}>
-            <label style={labelStyle}>Additional Notes <span style={{ color: "#94a3b8", fontWeight: 400 }}>(optional)</span></label>
-            <textarea
-              style={{ ...inputStyle, minHeight: 72, resize: "vertical" }}
-              placeholder="e.g. We're hiring urgently, mention remote-first culture, emphasize growth opportunity..."
-              value={extraNotes}
-              onChange={e => setExtraNotes(e.target.value)}
-            />
+          {/* RIGHT */}
+          <div style={{ background: s.surface, border: `1px solid ${s.border}`, borderRadius: 12, padding: "1.5rem", display: "flex", flexDirection: "column" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <div style={{ fontSize: ".7rem", fontWeight: 600, textTransform: "uppercase", letterSpacing: 1, color: s.muted }}>Generated Message</div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={generate} style={{ padding: "5px 14px", borderRadius: 8, border: `1.5px solid ${s.border2}`, background: s.surface2, color: s.text2, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" }}>⟳ Regenerate</button>
+                <button onClick={copy} style={{ padding: "5px 14px", borderRadius: 8, border: `1.5px solid ${s.text}`, background: s.text, color: s.bg, cursor: "pointer", fontSize: 13, fontWeight: 600, fontFamily: "inherit" }}>
+                  {copied ? "✅ Copied!" : "⎘ Copy"}
+                </button>
+              </div>
+            </div>
+
+            {loading ? (
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div style={{ width: 32, height: 32, border: `3px solid ${s.border2}`, borderTop: `3px solid ${s.text}`, borderRadius: "50%", animation: "spin .8s linear infinite" }} />
+              </div>
+            ) : result ? (
+              <pre style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0, fontFamily: "'Segoe UI', system-ui, sans-serif", fontSize: 14, lineHeight: 1.75, color: s.text, background: s.surface2, borderRadius: 8, padding: "1rem 1.1rem", border: `1px solid ${s.border}`, flex: 1 }}>
+                {result}
+              </pre>
+            ) : (
+              <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", color: s.muted, fontStyle: "italic", fontSize: ".85rem", textAlign: "center", padding: "2rem" }}>
+                Your generated message will appear here.<br />Fill in the details on the left and hit Generate.
+              </div>
+            )}
           </div>
 
-          {error && <div style={{ background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 8, padding: "10px 14px", color: "#dc2626", fontSize: 14, marginBottom: 14 }}>{error}</div>}
-
-          <button
-            onClick={generate}
-            disabled={loading}
-            style={{
-              width: "100%", padding: "13px 0", borderRadius: 10, border: "none",
-              background: loading ? "#a5b4fc" : "linear-gradient(90deg,#6366f1,#8b5cf6)",
-              color: "#fff", fontWeight: 700, fontSize: 16, cursor: loading ? "not-allowed" : "pointer",
-              boxShadow: "0 2px 12px rgba(99,102,241,0.25)", transition: "opacity 0.2s",
-            }}
-          >
-            {loading ? "Generating..." : "✨ Generate Message"}
-          </button>
         </div>
-
-        {/* Result */}
-        {loading && <div style={{ marginTop: 20, background: "#fff", borderRadius: 16, boxShadow: "0 4px 24px rgba(99,102,241,0.08)", padding: 20 }}><Spinner /></div>}
-
-        {result && !loading && (
-          <div style={{ marginTop: 20, background: "#fff", borderRadius: 16, boxShadow: "0 4px 24px rgba(99,102,241,0.08)", padding: 28 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-              <h2 style={{ margin: 0, fontSize: 17, fontWeight: 700, color: "#1e1b4b" }}>📬 Your Outreach Message</h2>
-              <button onClick={copy} style={{
-                padding: "6px 16px", borderRadius: 8, border: "1.5px solid #c7d2fe",
-                background: copied ? "#eef2ff" : "#fff", color: "#6366f1", cursor: "pointer", fontWeight: 600, fontSize: 13,
-              }}>
-                {copied ? "✅ Copied!" : "📋 Copy"}
-              </button>
-            </div>
-            <pre style={{
-              whiteSpace: "pre-wrap", wordBreak: "break-word", margin: 0,
-              fontFamily: "system-ui,sans-serif", fontSize: 14.5, lineHeight: 1.7,
-              color: "#334155", background: "#f8fafc", borderRadius: 10, padding: 18,
-              border: "1px solid #e2e8f0",
-            }}>{result}</pre>
-            <button
-              onClick={generate}
-              style={{
-                marginTop: 14, padding: "8px 20px", borderRadius: 8, border: "1.5px solid #c7d2fe",
-                background: "#fff", color: "#6366f1", cursor: "pointer", fontWeight: 600, fontSize: 13,
-              }}
-            >🔄 Regenerate</button>
-          </div>
-        )}
       </div>
-    </div>
+    </>
   );
 }
-
-const inputStyle = {
-  width: "100%", padding: "10px 12px", borderRadius: 8, border: "1.5px solid #e2e8f0",
-  fontSize: 14, outline: "none", boxSizing: "border-box", fontFamily: "system-ui,sans-serif",
-  marginTop: 5, color: "#1e293b", background: "#fafafa",
-};
-const labelStyle = { fontSize: 13, fontWeight: 600, color: "#374151" };
