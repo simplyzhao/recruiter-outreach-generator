@@ -21,44 +21,35 @@ export default async function handler(req, res) {
     return res.status(400).json({ error: "Resume PDF is required." });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
+  const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) {
     return res.status(500).json({ error: "API key not configured." });
   }
 
   try {
-    let body;
+    const parts = [];
 
     if (mode === "url") {
       const prompt = `Analyze this profile/page: ${url}\n\nExtract professional info (name, role, skills, projects, experience), then write a ${tone.toLowerCase()} ${platform} outreach message for the role of "${jobTitle}"${company ? ` at ${company}` : ""}.${extraNotes ? `\nRecruiter notes: ${extraNotes}` : ""}\n${platformHint(platform)}\nWrite the message in ${language}. Write only the outreach message, nothing else.`;
-      body = {
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        tools: [{ type: "web_search_20250305", name: "web_search" }],
-        messages: [{ role: "user", content: prompt }],
-      };
+      parts.push({ text: prompt });
     } else {
       const prompt = `You are an expert tech recruiter. Based on the attached resume, write a ${tone.toLowerCase()} ${platform} outreach message for the role of "${jobTitle}"${company ? ` at ${company}` : ""}.${extraNotes ? `\nRecruiter notes: ${extraNotes}` : ""}\n- Personalize with specific details. Highlight fit. Include a call-to-action.\n${platformHint(platform)}\nWrite the message in ${language}. Write only the message.`;
-      body = {
-        model: "claude-sonnet-4-20250514",
-        max_tokens: 1000,
-        messages: [{
-          role: "user",
-          content: [
-            { type: "document", source: { type: "base64", media_type: "application/pdf", data: resumeBase64 } },
-            { type: "text", text: prompt },
-          ],
-        }],
-      };
+      parts.push(
+        { inlineData: { mimeType: "application/pdf", data: resumeBase64 } },
+        { text: prompt },
+      );
     }
 
-    const response = await fetch("https://api.anthropic.com/v1/messages", {
+    const body = {
+      contents: [{ role: "user", parts }],
+      tools: mode === "url" ? [{ googleSearch: {} }] : undefined,
+    };
+
+    const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${apiKey}`;
+
+    const response = await fetch(apiUrl, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
 
@@ -68,11 +59,15 @@ export default async function handler(req, res) {
       return res.status(response.status).json({ error: data.error.message });
     }
 
-    const message = data.content
-      .filter((b) => b.type === "text")
-      .map((b) => b.text)
+    const message = data.candidates?.[0]?.content?.parts
+      ?.filter((p) => p.text)
+      .map((p) => p.text)
       .join("\n")
       .trim();
+
+    if (!message) {
+      return res.status(500).json({ error: "No response generated." });
+    }
 
     return res.status(200).json({ message });
   } catch (e) {
